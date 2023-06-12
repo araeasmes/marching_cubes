@@ -7,7 +7,7 @@ project(example)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Set the path to the cloned GLM repository
-set(GLM_DIR "/home/araeasmes/code/libs/glm")
+set(GLM_DIR "${PROJECT_SOURCE_DIR}/src/includes/glm")
 
 # Find the GLM package
 # find_package(GLM REQUIRED PATHS ${GLM_DIR})
@@ -35,10 +35,11 @@ if (NOT raylib_FOUND) # If there's none, fetch and build raylib
 endif()
 
 # Our Project
-include_directories("includes/")
+include_directories("src/includes/")
+include_directories("src/includes/raylib/")
 message(raylib_INCLUDE=${raylib_INCLUDE_DIRS})
 
-add_executable(${PROJECT_NAME} core_basic_window.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp)
 #set(raylib_VERBOSE 1)
 target_link_libraries(${PROJECT_NAME} raylib)
 
