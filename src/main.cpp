@@ -334,7 +334,7 @@ Mesh genFromMarch(const MarchResult &res) {
         mesh.vertices[i * 3 + 2] = res.verts[i].z;        
 
         mesh.normals[i * 3 + 0] = 0.0f;
-        mesh.normals[i * 3 + 1] = 1.0f;
+        mesh.normals[i * 3 + 1] = 0.0f;
         mesh.normals[i * 3 + 2] = 0.0f;
         mesh.texcoords[i * 2 + 0] = 0.0f;
         mesh.texcoords[i * 2 + 1] = 0.0f;
@@ -343,6 +343,25 @@ Mesh genFromMarch(const MarchResult &res) {
     for (int i = 0; i < res.num_inds; ++i) {
         mesh.indices[i] = res.indices[i];
     }
+    for (int i = 0; i < res.num_inds; i += 3) {
+        int ia = res.indices[i + 0];
+        int ib = res.indices[i + 1];
+        int ic = res.indices[i + 2];
+        glm::vec3 normal = glm::cross(res.verts[ib] - res.verts[ia], res.verts[ic] - res.verts[ia]);
+        normal = glm::normalize(normal);
+        mesh.normals[ia * 3 + 0] = normal.x;
+        mesh.normals[ia * 3 + 1] = normal.y;
+        mesh.normals[ia * 3 + 2] = normal.z;
+
+        mesh.normals[ib * 3 + 0] = normal.x;
+        mesh.normals[ib * 3 + 1] = normal.y;
+        mesh.normals[ib * 3 + 2] = normal.z;
+
+        mesh.normals[ic * 3 + 0] = normal.x;
+        mesh.normals[ic * 3 + 1] = normal.y;
+        mesh.normals[ic * 3 + 2] = normal.z;
+    }
+
     for (int i = res.num_inds; i < 12 * 3; ++i) {
         mesh.indices[i] = 0;
     }
@@ -571,10 +590,10 @@ int main(void) {
     SetShaderValue(shader, ambientLoc, ambient_arr, SHADER_UNIFORM_VEC4);
     shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
     Light lights[MAX_LIGHTS] = { 0 };
-    lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 1, -2 }, Vector3Zero(), YELLOW, shader);
-    lights[1] = CreateLight(LIGHT_POINT, (Vector3){ 2, 1, 2 }, Vector3Zero(), RED, shader);
-    lights[2] = CreateLight(LIGHT_POINT, (Vector3){ -2, 1, 2 }, Vector3Zero(), GREEN, shader);
-    lights[3] = CreateLight(LIGHT_POINT, (Vector3){ 2, 1, -2 }, Vector3Zero(), BLUE, shader);
+    lights[0] = CreateLight(LIGHT_DIRECTIONAL, (Vector3){ -2, 1, -2 }, Vector3Zero(), YELLOW, shader);
+    lights[1] = CreateLight(LIGHT_DIRECTIONAL, (Vector3){ 2, 1, 2 }, Vector3Zero(), RED, shader);
+    lights[2] = CreateLight(LIGHT_DIRECTIONAL, (Vector3){ -2, 1, 2 }, Vector3Zero(), GREEN, shader);
+    lights[3] = CreateLight(LIGHT_DIRECTIONAL, (Vector3){ 2, 1, -2 }, Vector3Zero(), BLUE, shader);
 
 
     Matrix identity_matrix = MatrixIdentity();
