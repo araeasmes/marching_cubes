@@ -22,8 +22,6 @@
 
 #define MAX_COLUMNS 20
 
-#define FLT_EPSILON      1.192092896e-07F        // smallest such that 1.0+FLT_EPSILON != 1.0
-
 
 glm::vec3 orthoAxis(const glm::vec3 &v) {
     glm::vec3 av = glm::abs(v);
@@ -239,71 +237,143 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
         if (comp_ind < 3)
             continue;
         
-        int ordered_inds[12];
-        std::fill(ordered_inds, ordered_inds + 12, -1);
-
-        int cur_e = -1;
-        int i_ordered = 0;
+        int edge_neighbors[12][6];
+        int edge_n_cnt[12];
+        std::fill(edge_n_cnt, edge_n_cnt + 12, 0);
+        
         for (int e = 0; e < 12; ++e) {
             if (comp_edge_inds[e] == -1)
                 continue;
-            cur_e = e;
-            while (cur_e != -1) {
-                ordered_inds[i_ordered++] = comp_edge_inds[cur_e];
-                comp_edge_inds[cur_e] = -1; 
 
-                int edge_dir = cur_e / 4;
-                int edge_ingroup = cur_e % 4;
+            int edge_dir = e / 4;
+            int edge_ingroup = e % 4;
 
-                int p1 = 0;
-                int p2 = 0;
-                edge_to_points(p1, p2, cur_e);
+            int p1 = 0;
+            int p2 = 0;
+            edge_to_points(p1, p2, e);
+            
+            for (int j = 0; j < 3; ++j) {
+                if (j == edge_dir)
+                    continue;
                 
-                int next_e = -1;
-
-                for (int j = 0; j < 3; ++j) {
-                    if (j == edge_dir)
-                        continue;
-                    
-                    int p3 = p1 ^ (1 << j);
-                    int p4 = p2 ^ (1 << j);
-                    int tmp_e = edge_index(p1, p3);
-                    if (comp_edge_inds[tmp_e] != -1) {
-                        next_e = tmp_e;
-                        break;
-                    }
-                    tmp_e = edge_index(p2, p4);
-                    if (comp_edge_inds[tmp_e] != -1) {
-                        next_e = tmp_e;
-                        break;
-                    }
-                    tmp_e = edge_index(p3, p4);
-                    if (comp_edge_inds[tmp_e] != -1) {
-                        next_e = tmp_e;
-                        break;
-                    }
+                int p3 = p1 ^ (1 << j);
+                int p4 = p2 ^ (1 << j);
+                int tmp_e = edge_index(p1, p3);
+                if (comp_edge_inds[tmp_e] != -1) {
+                    edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
+                    edge_n_cnt[e]++;
                 }
-                cur_e = next_e;
+                tmp_e = edge_index(p2, p4);
+                if (comp_edge_inds[tmp_e] != -1) {
+                    edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
+                    edge_n_cnt[e]++;
+                }
+                tmp_e = edge_index(p3, p4);
+                if (comp_edge_inds[tmp_e] != -1) {
+                    edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
+                    edge_n_cnt[e]++;
+                }
             }
         }
 
-        /*
-        glm::vec3 pt0 = out.verts[out.num_verts - comp_ind];
-        glm::vec3 pt1 = out.verts[out.num_verts - comp_ind + 1];
-        glm::vec3 pt2 = out.verts[out.num_verts - comp_ind + 2];
-        glm::vec3 dir = glm::cross(pt1 - pt0, pt2 - pt0);
-        // dir = glm::vec3(0.0f, 1.0f, 0.0f);
-        std::sort(out.verts + out.num_verts - comp_ind, out.verts + out.num_verts, 
-                [&](const glm::vec3 &a, const glm::vec3 &b) { return glm::dot(glm::cross(a - pt0, b - pt0), dir) < 0.0f; });
-        */
+        int ordered_inds[12];
+        int i_ordered = 0;
+        std::fill(ordered_inds, ordered_inds + 12, -1);
 
-        int id1 = ordered_inds[0];
-        for (int j = 2; j < comp_ind; ++j) {
-            int id2 = ordered_inds[j - 1];
-            int id3 = ordered_inds[j];
-            out.indices[out.num_inds++] = id1;
-            out.indices[out.num_inds++] = id2;
-            out.indices[out.num_inds++] = id3;
+        int connections_left[12];
+        std::fill(connections_left, connections_left + 12, 2);
+        int component_cnt = 0;
+        int edge_component[12];
+        std::fill(edge_component, edge_component + 12, -1);
+
+        // 6 and 12 are kinda arbitrary here
+        int components[6][12];
+        int components_size[6];
+        std::fill(components_size, components_size + 6, 0);
+
+        int visited_edges[12];
+        std::fill(visited_edges, visited_edges + 12, 0);
+
+        for (int e = 0; e < 12; ++e) {
+            if (comp_edge_inds[e] == -1)
+                continue;
+            if (connections_left[e] != 2)
+                continue;
+            if (edge_n_cnt[e] != 2)
+                continue;
+            // here connections_left[e] == edge_n_cnt[e]
+
+            int comp = component_cnt++;
+
+            int edge_st[12];
+            int edge_st_size = 1;
+            edge_st[0] = e;
+            while(edge_st_size) {
+                int cur_e = edge_st[--edge_st_size]; 
+                visited_edges[cur_e] = 1;
+                edge_component[cur_e] = comp;
+                components[comp][components_size[comp]++] = cur_e;
+
+                if (connections_left[cur_e] != edge_n_cnt[cur_e])
+                    continue;
+
+                for (int j = 0; j < edge_n_cnt[cur_e]; ++j) {
+                    int next_e = edge_neighbors[cur_e][j]; 
+                    connections_left[cur_e]--;
+
+                    if (!visited_edges[next_e]) {
+                        edge_st[edge_st_size++] = next_e;
+                        visited_edges[next_e] = 1;
+                    }
+
+                    for (int k = 0; k < edge_n_cnt[next_e]; ++k) {
+                        if (edge_neighbors[next_e][k] == cur_e) {
+                            edge_n_cnt[next_e]--;
+                            std::swap(edge_neighbors[next_e][k], edge_neighbors[next_e][edge_n_cnt[next_e]]);
+                            break;
+                        }
+                    }
+                    connections_left[next_e]--;
+                }
+                edge_n_cnt[cur_e] = 0;
+            }
+        }
+        
+        for (int j = 0; j < component_cnt; ++j) {
+            if (components_size[j] < 3) {
+                std::cout << "ALERTA, SMALL COMPONENTS\n";
+            }
+            // reorder edges if there was an edge such that it had more than 2 connections,
+            // but we added it in the middle of the component - such edges should be at the start and end of the array
+            int left = 0;
+            int right = components_size[j] - 1;
+
+            int l_max = edge_n_cnt[components[j][0]];
+            int r_max = edge_n_cnt[components[j][right]];
+
+            while (left < components_size[j] && edge_n_cnt[components[j][left]] == 0)
+                left++;
+            while (right >= 0 && edge_n_cnt[components[j][right]] == 0)
+                right--;
+
+            if (left != 0 && right != components_size[j] - 1) {
+                std::cout << "ALERTA, BOTH ENDS ARE IN THE WRONG PLACE\n";
+            }
+
+            if (left != 0 && left != components_size[j]) {
+                std::reverse(components[j], components[j] + left + 1);
+            } else if (right != components_size[j] - 1 && right >= 0) {
+                std::reverse(components[j] + right, components[j] + components_size[j]);
+            }
+
+            int e1 = components[j][0];
+            for (int k = 2; k < components_size[j]; ++k) {
+                int e2 = components[j][k - 1];
+                int e3 = components[j][k];
+                out.indices[out.num_inds++] = comp_edge_inds[e1];
+                out.indices[out.num_inds++] = comp_edge_inds[e2];
+                out.indices[out.num_inds++] = comp_edge_inds[e3];
+            }
         }
     }
 }
@@ -506,17 +576,6 @@ int main(void) {
     Vector3 box_pos = {box_c.x, box_c.y, box_c.z};
     Vector3 box_dims = {box_dif.x, box_dif.y, box_dif.z}; 
 
-    glm::vec3 plane_pos(0.0f, 0.0f, 0.0f);
-    glm::vec3 plane_normal(0.0f, 1.0f, 0.0f);
-    glm::vec3 plane_normal_rot = plane_normal;
-    float plane_extents = 6.0f;
-    float plane_d = -glm::dot(plane_normal, plane_pos);
-
-    Matrix plane_mat = MatrixIdentity();
-    Mesh plane_mesh = genPlane(plane_pos, plane_extents, plane_normal);
-    Material plane_material = LoadMaterialDefault();
-    plane_material.maps[0].color = {230, 110, 150, 255};
-
     rlDisableBackfaceCulling();
     Quaternion q_model = {0.0f, 0.0f, 0.0f, 1.0f};
     Vector2 mouse_delta;
@@ -598,9 +657,6 @@ int main(void) {
 
     Matrix identity_matrix = MatrixIdentity();
     
-    fillPlaneSDF(march_sdf, box, plane_normal_rot, plane_d);
-    march(march_res, march_sdf, box); 
-
     Mesh march_mesh = genFromMarch(march_res);
     Material march_material = LoadMaterialDefault();
     march_material.maps[0].color = {100, 100, 255, 255};
@@ -690,11 +746,6 @@ int main(void) {
         new_fwd = Vector3Normalize(new_fwd);
         q_model = QuaternionMultiply(QuaternionFromVector3ToVector3(fwd, new_fwd),
                 q_model);
-        plane_mat = QuaternionToMatrix(q_model);
-        Vector3 tmp_vec = Vector3RotateByQuaternion({plane_normal.x, plane_normal.y, plane_normal.z}, q_model);
-        plane_normal_rot = {tmp_vec.x, tmp_vec.y, tmp_vec.z};
-        plane_normal_rot = glm::normalize(plane_normal_rot);
-        plane_d = -glm::dot(plane_normal_rot, plane_pos);
 
 
         // Update camera computes movement internally depending on the camera mode
@@ -735,9 +786,6 @@ int main(void) {
 */
         //----------------------------------------------------------------------------------
         //
-        fillPlaneSDF(march_sdf, box, plane_normal_rot, plane_d);
-        march(march_res, march_sdf, box); 
-        updateMeshFromMarch(march_mesh, march_res);
 
         // Draw
         //----------------------------------------------------------------------------------
@@ -751,20 +799,13 @@ int main(void) {
                 glm::vec3 pt1 = getBoxPointByIndex(box, 1);
                 glm::vec3 pt2 = getBoxPointByIndex(box, 2);
                 glm::vec3 pt4 = getBoxPointByIndex(box, 4);
+
+                // draw cubes to indicate axes directions
                 DrawCube((Vector3){pt0.x, pt0.y, pt0.z}, 0.25f, 0.25f, 0.25f, BLACK);
                 DrawCube((Vector3){pt1.x, pt1.y, pt1.z}, 0.25f, 0.25f, 0.25f, RED);
                 DrawCube((Vector3){pt2.x, pt2.y, pt2.z}, 0.25f, 0.25f, 0.25f, GREEN);
                 DrawCube((Vector3){pt4.x, pt4.y, pt4.z}, 0.25f, 0.25f, 0.25f, BLUE);
 
-                if (march_res.num_verts) {
-                    glm::vec3 pt_start = march_res.verts[0];
-                    DrawSphere((Vector3) {pt_start.x, pt_start.y, pt_start.z}, 0.2f, RED);
-                    pt_start += plane_normal_rot;
-                    DrawSphere((Vector3) {pt_start.x, pt_start.y, pt_start.z}, 0.15f, RED);
-                }
-
-                DrawCubeWires(box_pos, box_dims.x, box_dims.y, box_dims.z, GREEN);
-                
                 /*
                 for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
                     // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
@@ -777,6 +818,7 @@ int main(void) {
                     }
                 }
                 */
+
                 for (int i = 0; i < 256; ++i) {
                     // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
                     DrawMesh(march_meshes[i], march_material, identity_matrix);
@@ -823,7 +865,6 @@ int main(void) {
 
     // De-Initialization
     //--------------------------------------------------------------------------------------
-    UnloadMesh(plane_mesh);
     UnloadMesh(march_mesh);
 
     CloseWindow();        // Close window and OpenGL context
