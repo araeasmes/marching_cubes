@@ -294,6 +294,7 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
         int visited_edges[12];
         std::fill(visited_edges, visited_edges + 12, 0);
 
+        // find the "seeding" edges - ones which have only 2 neighbors
         for (int e = 0; e < 12; ++e) {
             if (comp_edge_inds[e] == -1)
                 continue;
@@ -356,11 +357,12 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
             while (right >= 0 && edge_n_cnt[components[j][right]] == 0)
                 right--;
 
-            if (left != 0 && right != components_size[j] - 1) {
+            if (right >= 0 && left < components_size[j] &&
+                    left != 0 && right != components_size[j] - 1) {
                 std::cout << "ALERTA, BOTH ENDS ARE IN THE WRONG PLACE\n";
             }
 
-            if (left != 0 && left != components_size[j]) {
+            if (left != 0 && left < components_size[j]) {
                 std::reverse(components[j], components[j] + left + 1);
             } else if (right != components_size[j] - 1 && right >= 0) {
                 std::reverse(components[j] + right, components[j] + components_size[j]);
@@ -374,7 +376,94 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
                 out.indices[out.num_inds++] = comp_edge_inds[e2];
                 out.indices[out.num_inds++] = comp_edge_inds[e3];
             }
+
         }
+
+        // connect leftovers 
+        for (int j = 0; j < component_cnt; ++j) {
+            int last = components_size[j] - 1;
+            int ledge = components[j][0];
+            int redge = components[j][last];
+            int left_cnt = edge_n_cnt[ledge]; 
+            int right_cnt = edge_n_cnt[redge];
+
+            // shouldn't happen:
+            if ((left_cnt > 0) ^ (right_cnt > 0))
+                std::cout << "not both???\n";
+
+            if (left_cnt && right_cnt) {
+#ifdef PRINT_STUFF
+                std::cout << left_cnt << " - " << right_cnt << "\n"; 
+                std::cout << "left edge = " << ledge << "\n";
+                for (int k = 0; k < left_cnt; ++k) {
+                    std::cout << edge_neighbors[ledge][k] << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "right edge = " << redge << "\n";
+                for (int k = 0; k < right_cnt; ++k) {
+                    std::cout << edge_neighbors[redge][k] << " ";
+                }
+                std::cout << std::endl;
+#endif
+                for (int k = 0; k < left_cnt; ++k) {
+                    if (edge_neighbors[ledge][k] == redge) {
+                        std::swap(edge_neighbors[ledge][k], edge_neighbors[ledge][left_cnt - 1]);
+                        left_cnt--;
+                        break;
+                    }
+                }
+                for (int k = 0; k < right_cnt; ++k) {
+                    if (edge_neighbors[redge][k] == ledge) {
+                        std::swap(edge_neighbors[redge][k], edge_neighbors[redge][right_cnt - 1]);
+                        right_cnt--;
+                        break;
+                    }
+                }
+
+                if (left_cnt != 2) {
+                    std::cerr << "NOT TWO LEFTOVERS, ALERT!\n";
+                    continue;
+                }
+
+                int a = ledge;
+                int b = redge;
+                int c = edge_neighbors[ledge][0];
+                int d = edge_neighbors[ledge][1];
+
+                // add abc, cbd triangles
+                // swap c and d if the triangles generate normals in different directions
+                // which is equivalent to crossing each other instead of creating a quad 
+
+                int ia = comp_edge_inds[a];
+                int ib = comp_edge_inds[b];
+                int ic = comp_edge_inds[c];
+                int id = comp_edge_inds[d];
+
+
+                const glm::vec3 &pt_a = out.verts[ia];
+                const glm::vec3 &pt_b = out.verts[ib];
+                const glm::vec3 &pt_c = out.verts[ic];
+                const glm::vec3 &pt_d = out.verts[id];
+
+                glm::vec3 abc = glm::cross(pt_b - pt_a, pt_c - pt_a);
+                glm::vec3 cbd = glm::cross(pt_c - pt_d, pt_b - pt_d);
+                if (glm::dot(abc, cbd) < 0) {
+                    std::swap(c, d);
+                    std::swap(ic, id);
+                }
+
+                out.indices[out.num_inds++] = ia;
+                out.indices[out.num_inds++] = ib;
+                out.indices[out.num_inds++] = ic;
+
+                out.indices[out.num_inds++] = ic;
+                out.indices[out.num_inds++] = ib;
+                out.indices[out.num_inds++] = id;
+            }
+
+
+        } 
     }
 }
 
@@ -563,6 +652,8 @@ static Mesh genMesh() {
     return mesh;
 }
 
+// #define ALL_BOXES_TEST
+
 int main(void) {
     const int screenWidth = 1280;
     const int screenHeight = 720;
@@ -584,14 +675,23 @@ int main(void) {
     float march_sdf[8];
 
     constexpr int XBOXES = 16;
+#ifdef ALL_BOXES_TEST
     constexpr int YBOXES = 1;
+#else
+    constexpr int YBOXES = 6;
+#endif
     constexpr int ZBOXES = 16;
 
     BBox all_boxes[XBOXES * YBOXES * ZBOXES];
     RLCube rl_boxes[XBOXES * YBOXES * ZBOXES];
 
-    float box_side = 2.0f;
-    float box_spacing = 2.0f;
+    float box_side = 0.25f;
+    float box_spacing = 0.0f;
+
+#ifdef ALL_BOXES_TEST
+    box_side = 2;
+    box_spacing = 2;
+#endif
 
     float box_start_x = 0.0f;
     float box_start_y = YBOXES / 2 * -box_side;
@@ -621,18 +721,20 @@ int main(void) {
 
     MarchResult sine_marches[XBOXES * YBOXES * ZBOXES];
     Mesh march_meshes[XBOXES * YBOXES * ZBOXES];
-    // genMarches(all_boxes);
-    for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
-        fillSDFSine(march_sdf, all_boxes[i]);
-        march(sine_marches[i], march_sdf, all_boxes[i]);
-        //march_meshes[i] = genFromMarch(sine_marches[i]);
-    }
 
+#ifdef ALL_BOXES_TEST
     for (int i = 0; i < 256; ++i) {
         fillSDFByIndex(march_sdf, i);
         march(all_marches[i], march_sdf, all_boxes[i]);
         march_meshes[i] = genFromMarch(all_marches[i]);
     }
+#else
+    for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
+        fillSDFSine(march_sdf, all_boxes[i]);
+        march(sine_marches[i], march_sdf, all_boxes[i]);
+        march_meshes[i] = genFromMarch(sine_marches[i]);
+    }
+#endif
 
     // Load basic lighting shader
     Shader shader = LoadShader(TextFormat("resources/shaders/glsl%i/lighting.vs", GLSL_VERSION),
@@ -806,19 +908,7 @@ int main(void) {
                 DrawCube((Vector3){pt2.x, pt2.y, pt2.z}, 0.25f, 0.25f, 0.25f, GREEN);
                 DrawCube((Vector3){pt4.x, pt4.y, pt4.z}, 0.25f, 0.25f, 0.25f, BLUE);
 
-                /*
-                for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
-                    // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
-                    DrawMesh(march_meshes[i], march_material, identity_matrix);
-                    for (int j = 0; j < 8; ++j) {
-                        if (all_marches[i].sdf[j] >= 0.0f) {
-                            glm::vec3 corner = getBoxPointByIndex(all_boxes[i], j);
-                            DrawCube({corner.x, corner.y, corner.z}, 0.25f, 0.25f, 0.25f, RED);
-                        }
-                    }
-                }
-                */
-
+#ifdef ALL_BOXES_TEST
                 for (int i = 0; i < 256; ++i) {
                     // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
                     DrawMesh(march_meshes[i], march_material, identity_matrix);
@@ -829,9 +919,18 @@ int main(void) {
                         }
                     }
                 }
-
-                DrawMesh(march_mesh, march_material, march_matrix);
-
+#else
+                for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
+                    DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
+                    DrawMesh(march_meshes[i], march_material, identity_matrix);
+                    for (int j = 0; j < 8; ++j) {
+                        if (sine_marches[i].sdf[j] >= 0.0f) {
+                            glm::vec3 corner = getBoxPointByIndex(all_boxes[i], j);
+                            DrawCube({corner.x, corner.y, corner.z}, 0.05f, 0.05f, 0.05f, RED);
+                        }
+                    }
+                }
+#endif
             EndMode3D();
 
             // Draw info boxes
