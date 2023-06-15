@@ -20,8 +20,6 @@
     #define GLSL_VERSION            100
 #endif
 
-#define MAX_COLUMNS 20
-
 
 glm::vec3 orthoAxis(const glm::vec3 &v) {
     glm::vec3 av = glm::abs(v);
@@ -195,19 +193,18 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
         if (pts_sdf[i] < 0)
             continue;
 
-        int cur_comp[12] = {-1};
-        std::fill(cur_comp, cur_comp + 12, -1);
         int comp_ind = 0;
 
         int comp_edge_inds[12];
         std::fill(comp_edge_inds, comp_edge_inds + 12, -1);
+        bool edge_dirs[12];
 
         queue[queue_end++] = i;
         while (queue_i != queue_end) {
             int ind = queue[queue_i++];
 
             for (int j = 0; j < 3; ++j) {
-                int k = ind ^ (1 << j);                
+                int k = ind ^ (1 << j);
                 
                 if (pts_sdf[k] >= 0) {
                     if (visited[k] == 0) {
@@ -225,9 +222,11 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
                     glm::vec3 pt = (1.0f - t) * pt_i + pt_k * t;
                     out.verts[out.num_verts] = pt;
 
-                    comp_edge_inds[edge_index(ind, k)] = out.num_verts;
+                    int edge_ind = edge_index(ind, k);
+                    comp_edge_inds[edge_ind] = out.num_verts;
+                    edge_dirs[edge_ind] = ind < k;
 
-                    cur_comp[comp_ind++] = out.num_verts;
+                    comp_ind++;
                     out.num_verts++;
                 }
                 visited[ind] = 2;
@@ -251,19 +250,28 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
             int p1 = 0;
             int p2 = 0;
             edge_to_points(p1, p2, e);
+            int dir = edge_dirs[e];
+            
+            int js[2];
+            int js_cnt = 0;
             
             for (int j = 0; j < 3; ++j) {
                 if (j == edge_dir)
                     continue;
-                
+                dir ^= (p1 >> j) & 1;
+                js[js_cnt++] = j;
+            }
+            dir ^= (edge_dir == 1);
+            if (dir) {
+                std::swap(js[0], js[1]);
+            }
+
+            for (int ij = 0; ij < 2; ++ij) {
+                int j = js[ij];
                 int p3 = p1 ^ (1 << j);
                 int p4 = p2 ^ (1 << j);
-                int tmp_e = edge_index(p1, p3);
-                if (comp_edge_inds[tmp_e] != -1) {
-                    edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
-                    edge_n_cnt[e]++;
-                }
-                tmp_e = edge_index(p2, p4);
+                int tmp_e;
+                tmp_e = edge_index(p1, p3);
                 if (comp_edge_inds[tmp_e] != -1) {
                     edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
                     edge_n_cnt[e]++;
@@ -273,12 +281,14 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
                     edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
                     edge_n_cnt[e]++;
                 }
+                tmp_e = edge_index(p2, p4);
+                if (comp_edge_inds[tmp_e] != -1) {
+                    edge_neighbors[e][edge_n_cnt[e]] = tmp_e;    
+                    edge_n_cnt[e]++;
+                }
+                std::swap(p1, p2);
             }
         }
-
-        int ordered_inds[12];
-        int i_ordered = 0;
-        std::fill(ordered_inds, ordered_inds + 12, -1);
 
         int connections_left[12];
         std::fill(connections_left, connections_left + 12, 2);
@@ -349,9 +359,6 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
             int left = 0;
             int right = components_size[j] - 1;
 
-            int l_max = edge_n_cnt[components[j][0]];
-            int r_max = edge_n_cnt[components[j][right]];
-
             while (left < components_size[j] && edge_n_cnt[components[j][left]] == 0)
                 left++;
             while (right >= 0 && edge_n_cnt[components[j][right]] == 0)
@@ -359,13 +366,15 @@ void march(MarchResult &out, float pts_sdf[8], const BBox &box) {
 
             if (right >= 0 && left < components_size[j] &&
                     left != 0 && right != components_size[j] - 1) {
-                std::cout << "ALERTA, BOTH ENDS ARE IN THE WRONG PLACE\n";
+                std::cerr << "ALERTA, BOTH ENDS ARE IN THE WRONG PLACE\n";
             }
 
             if (left != 0 && left < components_size[j]) {
                 std::reverse(components[j], components[j] + left + 1);
+                std::reverse(components[j], components[j] + components_size[j]);
             } else if (right != components_size[j] - 1 && right >= 0) {
                 std::reverse(components[j] + right, components[j] + components_size[j]);
+                std::reverse(components[j], components[j] + components_size[j]);
             }
 
             int e1 = components[j][0];
@@ -644,7 +653,7 @@ static Mesh genMesh() {
     mesh.normals[7] = 1;
     mesh.normals[8] = 0;
     mesh.texcoords[4] = 1;
-    mesh.texcoords[5] =0;
+    mesh.texcoords[5] = 0;
 
     // Upload mesh data from CPU (RAM) to GPU (VRAM) memory
     UploadMesh(&mesh, false);
@@ -658,6 +667,7 @@ int main(void) {
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
+    SetTraceLogLevel(LOG_ERROR);
     InitWindow(screenWidth, screenHeight, "raylib marching cubes stuff");
 
     BBox box({glm::vec3(-2.0f, 1.0f, -2.0f), glm::vec3(2.0f, 5.0f, 2.0f)});
