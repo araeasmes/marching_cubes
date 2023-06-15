@@ -2,3 +2,4 @@ build/**
 resources/
 !build/resources/**
 src/includes/glm/doc/**
+.vscode/**
