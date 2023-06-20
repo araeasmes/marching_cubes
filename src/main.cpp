@@ -57,18 +57,6 @@ void fillPlaneSDF(float pts_sdf[8], const BBox &box, const glm::vec3 &plane_norm
 }
 
 
-MarchResult all_marches[256];
-
-void genMarches(const BBox boxes[256]) {
-    float pt_sdf[8];
-    for (int ind = 0; ind < 256; ++ind) {
-        fillSDFByIndex(pt_sdf, ind); 
-        march_no_table(all_marches[ind], pt_sdf, boxes[ind]);
-    }
-}
-
-// #define ALL_BOXES_TEST
-
 int main(void) {
     const int screenWidth = 1280;
     const int screenHeight = 720;
@@ -76,93 +64,26 @@ int main(void) {
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(screenWidth, screenHeight, "raylib marching cubes stuff");
 
-    BBox box({glm::vec3(-2.0f, 1.0f, -2.0f), glm::vec3(2.0f, 5.0f, 2.0f)});
-
-    glm::vec3 box_c = (box.pt.min + box.pt.max) * 0.5f;
-    glm::vec3 box_dif = box.pt.max - box.pt.min;
-    Vector3 box_pos = {box_c.x, box_c.y, box_c.z};
-    Vector3 box_dims = {box_dif.x, box_dif.y, box_dif.z}; 
-
     rlDisableBackfaceCulling();
     Quaternion q_model = {0.0f, 0.0f, 0.0f, 1.0f};
     Vector2 mouse_delta;
 
-    MarchResult march_res;
-    float march_sdf[8];
-
-    constexpr int XBOXES = 32;
-#ifdef ALL_BOXES_TEST
-    constexpr int YBOXES = 1;
-#else
-    constexpr int YBOXES = 16;
-#endif
-    constexpr int ZBOXES = 32;
-
-    BBox *all_boxes = new BBox[XBOXES * YBOXES * ZBOXES];
-    RLCube *rl_boxes = new RLCube[XBOXES * YBOXES * ZBOXES];
-
-    float box_side = 0.20f;
-    float box_spacing = 0.0f;
+    std::vector<int> lut_edges[256];
+    std::vector<int> lut_indices[256];
+    generateTable(lut_edges, lut_indices);
 
     SdfSphere sdf_sphere_data = {glm::vec3(0.0f), 3.0f, 0.0f};
     SdfSine sdf_sine_data = {0.0f};
-    Grid grid = {glm::vec3(-3.0f), glm::vec3(0.2f), glm::vec<3, int>(30, 30, 40)};
+    Grid grid = {glm::vec3(-3.0f, -3.0f, -3.0f), glm::vec3(0.2f), glm::vec<3, int>(40, 40, 40)};
     std::vector<glm::vec3> grid_pts;
     std::vector<int> grid_inds;
     int grid_pts_cnt;
     int grid_inds_cnt;
-    march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSine, (void*)&sdf_sine_data);
+    march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSphere, (void*)&sdf_sphere_data,
+        lut_edges, lut_indices);
     Mesh grid_mesh = genFromGridMarch(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt);
 
     float frame_cnt = 0.0f;
-
-#ifdef ALL_BOXES_TEST
-    box_side = 2;
-    box_spacing = 2;
-#endif
-
-    float box_start_x = XBOXES / 2 * -box_side;
-    float box_start_y = YBOXES / 2 * -box_side;
-    float box_start_z = ZBOXES / 2 * -box_side;
-
-    glm::vec3 box_dim(0.5 * box_side);
-
-    float cur_box_x = box_start_x;
-    for (int x = 0; x < XBOXES; ++x) {
-        float cur_box_y = box_start_y;
-        for (int y = 0; y < YBOXES; ++y) {
-            float cur_box_z = box_start_z;
-            for (int z = 0; z < ZBOXES; ++z) {
-                int ind = x * YBOXES * ZBOXES + y * ZBOXES + z;
-                glm::vec3 box_pt(cur_box_x, cur_box_y, cur_box_z);
-                all_boxes[ind].pt.min = box_pt - box_dim;
-                all_boxes[ind].pt.max = box_pt + box_dim;
-                rl_boxes[ind].pos = {box_pt.x, box_pt.y, box_pt.z};
-                rl_boxes[ind].dims = { box_side, box_side, box_side};
-
-                cur_box_z += box_side + box_spacing;
-            }
-            cur_box_y += box_side + box_spacing;
-        }
-        cur_box_x += box_side + box_spacing;
-    }
-
-    MarchResult *sine_marches = new MarchResult[XBOXES * YBOXES * ZBOXES];
-    Mesh *march_meshes = new Mesh[XBOXES * YBOXES * ZBOXES];
-
-#ifdef ALL_BOXES_TEST
-    for (int i = 0; i < 256; ++i) {
-        fillSDFByIndex(march_sdf, i);
-        march_no_table(all_marches[i], march_sdf, all_boxes[i]);
-        march_meshes[i] = genFromMarch(all_marches[i]);
-    }
-#else
-    for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
-        fillSDFSine(march_sdf, all_boxes[i]);
-        march_no_table(sine_marches[i], march_sdf, all_boxes[i]);
-        march_meshes[i] = genFromMarch(sine_marches[i]);
-    }
-#endif
 
     // Load basic lighting shader
     Shader shader = LoadShader(TextFormat("resources/shaders/glsl%i/lighting.vs", GLSL_VERSION),
@@ -179,7 +100,7 @@ int main(void) {
     SetShaderValue(shader, ambientLoc, ambient_arr, SHADER_UNIFORM_VEC4);
     shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
     Light lights[MAX_LIGHTS] = { 0 };
-    lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3Zero(), (Vector3){ -2, 1, -2 }, YELLOW, shader);
+    lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3Zero(), (Vector3){ -2, -1, -2 }, YELLOW, shader);
     lights[1] = CreateLight(LIGHT_DIRECTIONAL, Vector3Zero(), (Vector3){ 2, 1, 2 }, RED, shader);
     lights[2] = CreateLight(LIGHT_DIRECTIONAL, Vector3Zero(), (Vector3){ -2, 1, 2 }, GREEN, shader);
     lights[3] = CreateLight(LIGHT_DIRECTIONAL, Vector3Zero(), (Vector3){ 2, 1, -2 }, BLUE, shader);
@@ -268,7 +189,8 @@ int main(void) {
         frame_cnt += 1.0f;
         sdf_sphere_data.t = frame_cnt;
         sdf_sine_data.t = frame_cnt;
-        march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSine, (void*)&sdf_sine_data);
+        march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSphere, (void*)&sdf_sphere_data,
+            lut_edges, lut_indices);
         updateMeshFromGridMarch(grid_mesh, grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt);
 
         mouse_delta = GetMouseDelta();
@@ -330,41 +252,8 @@ int main(void) {
 
             BeginMode3D(camera);
                 
-                glm::vec3 pt0 = getBoxPointByIndex(box, 0);
-                glm::vec3 pt1 = getBoxPointByIndex(box, 1);
-                glm::vec3 pt2 = getBoxPointByIndex(box, 2);
-                glm::vec3 pt4 = getBoxPointByIndex(box, 4);
-
-                // draw cubes to indicate axes directions
-                DrawCube((Vector3){pt0.x, pt0.y, pt0.z}, 0.25f, 0.25f, 0.25f, BLACK);
-                DrawCube((Vector3){pt1.x, pt1.y, pt1.z}, 0.25f, 0.25f, 0.25f, RED);
-                DrawCube((Vector3){pt2.x, pt2.y, pt2.z}, 0.25f, 0.25f, 0.25f, GREEN);
-                DrawCube((Vector3){pt4.x, pt4.y, pt4.z}, 0.25f, 0.25f, 0.25f, BLUE);
-
-#ifdef ALL_BOXES_TEST
-                for (int i = 0; i < 256; ++i) {
-                    // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
-                    DrawMesh(march_meshes[i], march_material, identity_matrix);
-                    for (int j = 0; j < 8; ++j) {
-                        if (all_marches[i].sdf[j] >= 0.0f) {
-                            glm::vec3 corner = getBoxPointByIndex(all_boxes[i], j);
-                            DrawCube({corner.x, corner.y, corner.z}, 0.25f, 0.25f, 0.25f, RED);
-                        }
-                    }
-                }
-#else
                 DrawMesh(grid_mesh, march_material, identity_matrix);
-                for (int i = 0; i < XBOXES * YBOXES * ZBOXES; ++i) {
-                    // DrawCubeWires(rl_boxes[i].pos, rl_boxes[i].dims.x, rl_boxes[i].dims.y, rl_boxes[i].dims.z, GREEN);
-                    // DrawMesh(march_meshes[i], march_material, identity_matrix);
-                    for (int j = 0; j < 8; ++j) {
-                        if (sine_marches[i].sdf[j] >= 0.0f) {
-                            glm::vec3 corner = getBoxPointByIndex(all_boxes[i], j);
-                            // DrawCube({corner.x, corner.y, corner.z}, 0.05f, 0.05f, 0.05f, RED);
-                        }
-                    }
-                }
-#endif
+                
             EndMode3D();
 
             // Draw info boxes
@@ -399,12 +288,6 @@ int main(void) {
     // De-Initialization
     //--------------------------------------------------------------------------------------
     UnloadMesh(grid_mesh);
-
-    delete [] all_boxes;
-    delete [] rl_boxes;
-
-    delete [] sine_marches;
-    delete [] march_meshes;
 
     CloseWindow();        // Close window and OpenGL context
     //--------------------------------------------------------------------------------------

@@ -42,10 +42,8 @@ void march_no_table(MarchResult &out, float pts_sdf[8], const BBox &box);
 void generateTable(std::vector<int> edges[256], std::vector<int> indices[256]);
 
 void march(std::vector<glm::vec3> &pts, std::vector<int> &inds, int &edges_added, int &inds_added,
-            Grid &g, sdf_fun_type sdf_fun, void* sdf_data) {
-    std::vector<int> edges[256];
-    std::vector<int> indices[256];
-    generateTable(edges, indices);
+            const Grid &g, sdf_fun_type sdf_fun, void* sdf_data, 
+            std::vector<int> edges[256], std::vector<int> indices[256]) {
 
     int num_pts = (g.num_steps.x + 1) * (g.num_steps.y + 1) * (g.num_steps.z + 1);
     int yz_pts = (g.num_steps.y + 1) * (g.num_steps.z + 1);
@@ -232,6 +230,9 @@ void march_no_table(MarchResult &out, float pts_sdf[8], const BBox &box) {
     int queue_end = 0;
     
     out.ind = sdfToIndex(pts_sdf);
+    for (int i = 0; i < 8; ++i) {
+        pts_sdf[i] = -pts_sdf[i];
+    }
     for (int i = 0; i < 8; ++i) {
         out.sdf[i] = pts_sdf[i];
     }
