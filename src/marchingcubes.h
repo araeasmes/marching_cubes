@@ -112,7 +112,7 @@ void march(std::vector<glm::vec3> &pts, std::vector<int> &inds, int &edges_added
                     for (int j = 0; j < 3; ++j) {
                         if (j != edge_dir) {
                             grid_edge += p1_grid[j] * edge_mult;
-                            edge_mult *= g.num_steps[j];
+                            edge_mult *= (g.num_steps[j] + 1);
                         }
                     }
                     grid_edge += p1_grid[edge_dir] * edge_mult;

@@ -105,12 +105,13 @@ int main(void) {
     float box_spacing = 0.0f;
 
     SdfSphere sdf_sphere_data = {glm::vec3(0.0f), 3.0f, 0.0f};
-    Grid grid = {glm::vec3(-3.0f), glm::vec3(0.2f), glm::vec<3, int>(30, 30, 30)};
+    SdfSine sdf_sine_data = {0.0f};
+    Grid grid = {glm::vec3(-3.0f), glm::vec3(0.2f), glm::vec<3, int>(30, 30, 40)};
     std::vector<glm::vec3> grid_pts;
     std::vector<int> grid_inds;
     int grid_pts_cnt;
     int grid_inds_cnt;
-    march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSphere, (void*)&sdf_sphere_data);
+    march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSine, (void*)&sdf_sine_data);
     Mesh grid_mesh = genFromGridMarch(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt);
 
     float frame_cnt = 0.0f;
@@ -186,7 +187,6 @@ int main(void) {
 
     Matrix identity_matrix = MatrixIdentity();
     
-    Mesh march_mesh = genFromMarch(march_res);
     Material march_material = LoadMaterialDefault();
     march_material.maps[0].color = {100, 100, 255, 255};
     march_material.shader = shader;
@@ -267,7 +267,8 @@ int main(void) {
 
         frame_cnt += 1.0f;
         sdf_sphere_data.t = frame_cnt;
-        march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSphere, (void*)&sdf_sphere_data);
+        sdf_sine_data.t = frame_cnt;
+        march(grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt, grid, &sdfSine, (void*)&sdf_sine_data);
         updateMeshFromGridMarch(grid_mesh, grid_pts, grid_inds, grid_pts_cnt, grid_inds_cnt);
 
         mouse_delta = GetMouseDelta();
@@ -397,7 +398,7 @@ int main(void) {
 
     // De-Initialization
     //--------------------------------------------------------------------------------------
-    UnloadMesh(march_mesh);
+    UnloadMesh(grid_mesh);
 
     delete [] all_boxes;
     delete [] rl_boxes;

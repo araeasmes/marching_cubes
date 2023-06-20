@@ -12,11 +12,20 @@ struct SdfSphere {
     float t;
 };
 
-float sdfSphere(const glm::vec3& pt, void* data) {
+struct SdfSine {
+    float t;
+};
+
+float sdfSphere(const glm::vec3 &pt, void *data) {
     SdfSphere *sph = (SdfSphere*) data;
     glm::vec3 r = pt - sph->c;
     float add = glm::length(glm::sin(r * 2.0f * glm::sin(sph->t * 0.03f)));
     return glm::length(r) - sph->rad + add;
+}
+
+float sdfSine(const glm::vec3 &pt, void *data) {
+    SdfSine *s = (SdfSine*) data;
+    return 0.5f * glm::sin(2.0f * pt.x * pt.z + s->t * 0.03f) - pt.y;
 }
 
 void fillSDFSine(float pts_sdf[8], const BBox &box) {

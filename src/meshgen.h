@@ -11,9 +11,9 @@
 void updateMeshFromGridMarch(Mesh &mesh, 
     const std::vector<glm::vec3> &pts, const std::vector<int> &inds, int pt_cnt, int ind_cnt) {
     for (int i = 0; i < pts.size(); ++i) {
-        mesh.vertices[i * 3 + 0] = pts[i].x;        
-        mesh.vertices[i * 3 + 1] = pts[i].y;        
-        mesh.vertices[i * 3 + 2] = pts[i].z;        
+        mesh.vertices[i * 3 + 0] = pts[i].x;
+        mesh.vertices[i * 3 + 1] = pts[i].y;
+        mesh.vertices[i * 3 + 2] = pts[i].z;
 
         mesh.normals[i * 3 + 0] = 0.0f;
         mesh.normals[i * 3 + 1] = 0.0f;
